@@ -18,10 +18,23 @@
 #include <sys/types.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <ucontext.h>
+#include <string.h>
+#include <signal.h>
+#include "queue.h"
 
 typedef uint mypthread_t;
 
+typedef enum _Staus{Running, Ready} Status;
+
 typedef struct threadControlBlock {
+
+	mypthread_t thread_id;
+	Status thread_status;
+	char* stack;
+	int stack_size;
+	ucontext_t* context;
+
 	/* add important states in a thread control block */
 	// thread Id
 	// thread status
@@ -30,7 +43,6 @@ typedef struct threadControlBlock {
 	// thread priority
 	// And more ...
 
-	// YOUR CODE HERE
 } tcb;
 
 /* mutex struct definition */

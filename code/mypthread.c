@@ -1,23 +1,81 @@
 // File:	mypthread.c
 
-// List all group member's name:
-// username of iLab:
-// iLab Server:
+// List all group member's name: Zachary Londono
+// username of iLab: zcl6
+// iLab Server: ilab1.cs.rutgers.edu
 
 #include "mypthread.h"
 
 // INITAILIZE ALL YOUR VARIABLES HERE
 // YOUR CODE HERE
+static Queue* runqueue = NULL;
+static tcb** threads = NULL;
+static uint thread_array_size = 0;
+
+static const uint THREAD_SIZE_INCRIMENT = 100;
+
+static int next_thread_id() {
+
+	if (threads == NULL) {
+		// allocate array and assign each element to NULL
+		threads = malloc(sizeof(tcb*) * THREAD_SIZE_INCRIMENT);
+		thread_array_size = THREAD_SIZE_INCRIMENT;	
+		for (int j = 0; j < thread_array_size; j++)
+			threads[j] = NULL;
+	}
+
+	int i = 0;
+	for (i = 0; i < thread_array_size; i++)
+		if (threads[i] == NULL) return i;
+
+	tcb** new_array = realloc(threads, sizeof(tcb) * (thread_array_size + THREAD_SIZE_INCRIMENT));
+	if (!new_array) return -1;
+	threads = new_array; 
+	for (int j = thread_array_size; j < thread_array_size + THREAD_SIZE_INCRIMENT; j++)
+		threads[j] = NULL;
+	thread_array_size += THREAD_SIZE_INCRIMENT;
+
+	return thread_array_size;
+
+}
 
 
 /* create a new thread */
-int mypthread_create(mypthread_t * thread, pthread_attr_t * attr,
-                      void *(*function)(void*), void * arg) {
-       // create Thread Control Block
-       // create and initialize the context of this thread
-       // allocate space of stack for this thread to run
-       // after everything is all set, push this thread into queue
-       // YOUR CODE HERE
+int mypthread_create(mypthread_t * thread, pthread_attr_t * attr, void *(*function)(void*), void * arg) {
+	// create Thread Control Block
+	// create and initialize the context of this thread
+	// allocate space of stack for this thread to run
+	// after everything is all set, push this thread into queue
+
+	mypthread_t new_id = next_thread_id();
+	if (new_id == -1) return -1;
+
+	if (runqueue == NULL) {
+		runqueue = malloc(sizeof(Queue));
+		initQueue(runqueue);
+	}
+
+	// Set up new control block
+	threads[new_id] = malloc(sizeof(tcb));
+	if (!threads[new_id]) return -1;
+
+    threads[new_id]->context = malloc(sizeof(ucontext_t));
+	if (!(threads[new_id]->context)) return -1;
+	
+	threads[new_id]->stack = malloc(SIGSTKSZ);
+	if (!(threads[new_id]->stack)) return -1;
+	
+	threads[new_id]->thread_id = new_id;
+	threads[new_id]->thread_status = Ready;
+    threads[new_id]->context->uc_stack.ss_sp = threads[new_id]->stack;
+    threads[new_id]->context->uc_stack.ss_size = SIGSTKSZ;
+    threads[new_id]->context->uc_stack.ss_flags = 0;
+
+	makecontext(threads[new_id]->context, (void (*)())function, 1, arg);
+
+	mypthread_t* id_heap = malloc(sizeof(mypthread_t));
+	*id_heap = new_id;
+    enqueue(runqueue, id_heap);
 
     return 0;
 };
