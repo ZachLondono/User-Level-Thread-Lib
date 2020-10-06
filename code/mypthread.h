@@ -21,11 +21,12 @@
 #include <ucontext.h>
 #include <string.h>
 #include <signal.h>
+#include <errno.h>
 #include "queue.h"
 
 typedef uint mypthread_t;
 
-typedef enum _Staus{Running, Ready} Status;
+typedef enum _Staus{Running, Ready, Exited} Status;
 
 typedef struct threadControlBlock {
 
@@ -34,7 +35,8 @@ typedef struct threadControlBlock {
 	char* stack;
 	int stack_size;
 	ucontext_t* context;
-
+	void* exit_status;
+	int will_be_joined;
 	/* add important states in a thread control block */
 	// thread Id
 	// thread status
