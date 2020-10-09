@@ -25,13 +25,13 @@ static int init_timer() {
 	sa.sa_flags = SA_SIGINFO;
 	if (sigaction(SIGALRM, &sa, NULL) != 0) return -1;
 	
-	/*struct itimerval tv;
+	struct itimerval tv;
 	tv.it_value.tv_sec = 0;
 	tv.it_value.tv_usec = 500000;
 	tv.it_interval.tv_sec = 0;
 	tv.it_interval.tv_usec = 500000;
 	if (setitimer(ITIMER_REAL, &tv, NULL) == -1) return -1;
-	*/
+	
 	return 0;
 }
 
@@ -202,22 +202,28 @@ void print_status() {
 
 }
 
+static void sched_mlfq();
+static void sched_stcf();
 /* scheduler */
 static void schedule() {
 	// Every time when timer interrup happens, your thread library
 	// should be contexted switched from thread context to this
 	// schedule function
+	// schedule policy
+	#ifndef MLFQ
+		// Choose STCF
+		sched_stcf();
+	#else
+		// Choose MLFQ
+	#endif
 
-	// Invoke different actual scheduling algorithms
-	// according to policy (STCF or MLFQ)
+}
 
-	// if (sched == STCF)
-	//		sched_stcf();
-	// else if (sched == MLFQ)
-	// 		sched_mlfq();
+/* Preemptive SJF (STCF) scheduling algorithm */
+static void sched_stcf() {
+	// Your own implementation of STCF
+	// (feel free to modify arguments and return types)
 
-	// YOUR CODE HERE
-	
 	int lowest_ticks = -1;
 	int next_thread_id = -1;
 	
@@ -241,25 +247,7 @@ static void schedule() {
 
 	threads[next_thread_id]->status = Running;
 
-	//print_status();
-
 	swapcontext(threads[curr_thread_holder]->context, threads[next_thread_id]->context);
-
-// schedule policy
-#ifndef MLFQ
-	// Choose STCF
-#else
-	// Choose MLFQ
-#endif
-
-}
-
-/* Preemptive SJF (STCF) scheduling algorithm */
-static void sched_stcf() {
-	// Your own implementation of STCF
-	// (feel free to modify arguments and return types)
-
-	// YOUR CODE HERE
 }
 
 /* Preemptive MLFQ scheduling algorithm */
