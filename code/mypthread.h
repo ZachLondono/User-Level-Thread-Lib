@@ -19,32 +19,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <ucontext.h>
-#include <string.h>
 #include <signal.h>
-#include <errno.h>
-#include "queue.h"
+#include <string.h>
 
 typedef uint mypthread_t;
 
-typedef enum _Staus{Running, Ready, Exited} Status;
+typedef enum _Status { Ready, Running, Returned } Status;
 
 typedef struct threadControlBlock {
-
-	mypthread_t thread_id;
-	Status thread_status;
-	char* stack;
-	int stack_size;
+	mypthread_t id;
 	ucontext_t* context;
-	void* exit_status;
-	int will_be_joined;
-	/* add important states in a thread control block */
-	// thread Id
-	// thread status
-	// thread context
-	// thread stack
-	// thread priority
-	// And more ...
-
+	Status status;
 } tcb;
 
 /* mutex struct definition */

@@ -1,106 +1,101 @@
 // File:	mypthread.c
 
-// List all group member's name: Zachary Londono
-// username of iLab: zcl6
-// iLab Server: ilab1.cs.rutgers.edu
+// List all group member's name:
+// username of iLab:
+// iLab Server:
 
 #include "mypthread.h"
 
-// INITAILIZE ALL YOUR VARIABLES HERE
-static mypthread_t current_thread = -1;
-static ucontext_t main_ctx;
-static Queue* runqueue = NULL;
-static tcb** threads = NULL;
-static uint thread_array_size = 0;
+static int is_init = 0;
+static tcb** threads;
+static int thread_count = 3;
+static int curr_thread_id = 0;
 
-static const uint THREAD_SIZE_INCRIMENT = 100;
-
-static int init_tcb(tcb* control, mypthread_t thread_id) {
-	// Allocates the context which will store the state of the thread
-    control->context = malloc(sizeof(ucontext_t));
-	if (!(control->context)) return -1;
-	
-	// Creates the stack, parameters of which should be gotten from the pthread_attr_t ?
-	control->stack = malloc(SIGSTKSZ);
-	if (!(control->stack)) return -1;
-	
-	control->thread_id = thread_id;
-	control->thread_status = Ready;
-	control->will_be_joined = 0;
+static void schedule();
+static void signal_action(int a, siginfo_t *b, void *c) {
+	schedule();
 }
 
-static int next_thread_id() {
+static int init_timer() {
+	
+	struct sigaction sa;
+	memset(&sa, 0, sizeof(sa));
+	sigemptyset(&sa.sa_mask);
+	sa.sa_sigaction = signal_action;
+	sa.sa_flags = SA_SIGINFO;
+	if (sigaction(SIGALRM, &sa, NULL) != 0) return -1;
+	
+	return 0;
+}
 
-	// TODO: The thread array should be initilized so that the main thread is ID 0 and the scheduling thread is id 1
+static int next_available() {
+	static int last_id = 0;
 
-	if (threads == NULL) {
-		// allocate array and assign each element to NULL
-		threads = malloc(sizeof(tcb*) * THREAD_SIZE_INCRIMENT);
-		thread_array_size = THREAD_SIZE_INCRIMENT;	
-		for (int j = 0; j < thread_array_size; j++)
-			threads[j] = NULL;
-		
-			
+	if (!is_init) {
+		threads = malloc(sizeof(tcb*) * thread_count);
+
+		// NULL out array so theycan be chosen when creating new threads
+		int i = 0;
+		for (i = 0; i < thread_count; i++) {
+			threads[i] = NULL;
+		}
+
+		// stetup timer & signal catcher
+		if (init_timer() == -1) return -1;
+
+		// allocate tcb for main thread
 		threads[0] = malloc(sizeof(tcb));
-		int err = -1;
-		if (!threads[0] || (err = init_tcb(&threads[0], 0)) != 0) return err;
-		getcontext(&(threads[0]->context));
+		threads[0]->context = malloc(sizeof(ucontext_t));
+
+		is_init = 1;
 	}
 
-	int i = 0;
-	for (i = 0; i < thread_array_size; i++)
-		if (threads[i] == NULL) return i;
 
-	tcb** new_array = realloc(threads, sizeof(tcb) * (thread_array_size + THREAD_SIZE_INCRIMENT));
-	if (!new_array) return -1;
-	threads = new_array; 
-	for (int j = thread_array_size; j < thread_array_size + THREAD_SIZE_INCRIMENT; j++)
-		threads[j] = NULL;
-	thread_array_size += THREAD_SIZE_INCRIMENT;
-
-	return thread_array_size;
+	// TODO grow threads[] array as needed
+	return ++last_id;
 
 }
 
+void function_handler(intptr_t callback, intptr_t arg) {
 
-void funciton_handler(void *(*function)(void*), void* args) {
-	void* ret_val = function(args);
-	mypthread_exit(ret_val);	
+	// cast the arguments into their correct types
+	void* (*real_callback)(void*) = (void*(*)(void*)) callback;
+	void* real_arg = (void*) arg;
+
+	// save the return value so that it can be returned when another thread calls join
+	void* ret_val = real_callback(real_arg);
+	//mypthread_exit(ret_val)
 }
 
 /* create a new thread */
 int mypthread_create(mypthread_t * thread, pthread_attr_t * attr, void *(*function)(void*), void * arg) {
-	// create Thread Control Block
-	// create and initialize the context of this thread
-	// allocate space of stack for this thread to run
-	// after everything is all set, push this thread into queue
 
-	// This function will initilize the thread array if necessary and get the next available thread ID
-	mypthread_t new_id = next_thread_id();
-	if (new_id == -1) return -1;
+	// retreive the next available slot in the thread array
+	mypthread_t new_thread_id = next_available();
+	if (new_thread_id == -1) return -1;
 
-	if (runqueue == NULL) {
-		runqueue = malloc(sizeof(Queue));
-		initQueue(runqueue);
-	}
+	// assign pointer to new id
+	if(thread != NULL)
+		*thread = new_thread_id;
 
-	// Set up new control block
-	threads[new_id] = malloc(sizeof(tcb));
-	int err = -1;
-	if (!threads[new_id] || (err = init_tcb(&threads[new_id], new_id)) != 0) return err;
+	
+	threads[new_thread_id] = malloc(sizeof(tcb));
+	if (!threads[new_thread_id]) return -1;
 
-	// Set up the new context
-    threads[new_id]->context->uc_stack.ss_sp = threads[new_id]->stack;
-    threads[new_id]->context->uc_stack.ss_size = SIGSTKSZ;
-    threads[new_id]->context->uc_stack.ss_flags = 0;
-	makecontext(threads[new_id]->context, (void (*)())function, 1, arg);
+	tcb* new_thread = threads[new_thread_id];
+	// create new context for new thread
+	new_thread->context = malloc(sizeof(ucontext_t));
+	getcontext(new_thread->context);
+	ucontext_t* new_context = new_thread->context;
+	new_context->uc_stack.ss_sp = malloc(SIGSTKSZ);
+	if (!new_context) return -1;
+	new_context->uc_stack.ss_size = SIGSTKSZ;
+	new_context->uc_stack.ss_flags = 0;
 
-	// Add the new thread to the runqueue
-	mypthread_t* id_heap = malloc(sizeof(mypthread_t));
-	*id_heap = new_id;
-    enqueue(runqueue, id_heap);
+	// pass the function and argument as arguments into the function handler
+	makecontext(new_context, function_handler, 2, (intptr_t) function, (intptr_t) arg);
 
-    return 0;
+	return 0;
 };
 
 /* give CPU possession to other user-level threads voluntarily */
@@ -118,15 +113,7 @@ int mypthread_yield() {
 void mypthread_exit(void *value_ptr) {
 	// Deallocated any dynamic memory created when starting this thread
 
-	// Save return value in value_ptr
-	threads[current_thread]->exit_status = value_ptr;
-
-	// Flag the thread as exited
-	threads[current_thread]->thread_status = Exited;
-
-	free(threads[current_thread]->context);
-	free(threads[current_thread]->stack);
-
+	// YOUR CODE HERE
 };
 
 
@@ -136,30 +123,12 @@ int mypthread_join(mypthread_t thread, void **value_ptr) {
 	// wait for a specific thread to terminate
 	// de-allocate any dynamic memory created by the joining thread
 
-	// thread with id thread does not exist
-	if (thread >= thread_array_size || threads[thread] == NULL) return ESRCH;
-
-	tcb* thread_control = threads[thread];
-
-	// Check if thread is joinable (can't detach in this library so we ignore this)
-	// if (thread_controll->isdetached) return EINVAL
-
-	if (thread_control->will_be_joined) return EINVAL;
-	else thread_control->will_be_joined = current_thread; 	// flag it as being waited on so that other threads do not wait for it to join
-
-	while(thread_control->thread_status != Exited) {}	// Block current thread until the thread it's witing on exits
-
-	*value_ptr = thread_control->exit_status;
-
-	free(thread_control);	// dealocate threads control block
-	threads[thread] = NULL;	// set it's position to NULL so that the ID can be reused? maybe should change this to be sure that thread id's are unique within the process
-
+	// YOUR CODE HERE
 	return 0;
 };
 
 /* initialize the mutex lock */
-int mypthread_mutex_init(mypthread_mutex_t *mutex,
-                          const pthread_mutexattr_t *mutexattr) {
+int mypthread_mutex_init(mypthread_mutex_t *mutex, const pthread_mutexattr_t *mutexattr) {
 	//initialize data structures for this mutex
 
 	// YOUR CODE HERE
@@ -210,6 +179,15 @@ static void schedule() {
 	// 		sched_mlfq();
 
 	// YOUR CODE HERE
+
+	int next_thread_id = curr_thread_id == 1 ? 0 : curr_thread_id + 1;
+
+	int curr_thread_holder = curr_thread_id;
+	curr_thread_id = next_thread_id;
+
+	threads[next_thread_id]->status = Running;
+
+	swapcontext(threads[curr_thread_holder]->context, threads[next_thread_id]->context);
 
 // schedule policy
 #ifndef MLFQ
