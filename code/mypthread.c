@@ -25,6 +25,13 @@ static int init_timer() {
 	sa.sa_flags = SA_SIGINFO;
 	if (sigaction(SIGALRM, &sa, NULL) != 0) return -1;
 	
+	/*struct itimerval tv;
+	tv.it_value.tv_sec = 0;
+	tv.it_value.tv_usec = 500000;
+	tv.it_interval.tv_sec = 0;
+	tv.it_interval.tv_usec = 500000;
+	if (setitimer(ITIMER_REAL, &tv, NULL) == -1) return -1;
+	*/
 	return 0;
 }
 
@@ -45,6 +52,7 @@ static int next_available() {
 		// allocate tcb for main thread
 		threads[0] = malloc(sizeof(tcb));
 		threads[0]->context = malloc(sizeof(ucontext_t));
+		threads[0]->ticks = 0;
 
 		is_init = 1;
 	}
@@ -98,6 +106,8 @@ int mypthread_create(mypthread_t * thread, pthread_attr_t * attr, void *(*functi
 	if (!threads[new_thread_id]) return -1;
 
 	tcb* new_thread = threads[new_thread_id];
+	new_thread->ticks = 0;
+
 	// create new context for new thread
 	new_thread->context = malloc(sizeof(ucontext_t));
 	getcontext(new_thread->context);
@@ -119,6 +129,8 @@ int mypthread_yield() {
 	// change thread state from Running to Ready
 	// save context of this thread to its thread control block
 	// switch from thread context to scheduler context
+	threads[curr_thread_id]->status = Yielding;
+	schedule();
 
 	// YOUR CODE HERE
 	return 0;
@@ -179,6 +191,17 @@ int mypthread_mutex_destroy(mypthread_mutex_t *mutex) {
 	return 0;
 };
 
+void print_status() {
+	printf("///////////////////////////\n");	
+	int i = 0;
+	for (i = 0; i < thread_array_size; i++) {
+		if (threads[i] == NULL) continue;
+		printf("threads[%d]->status: %s\n", i, threads[i]->status == Ready ? "Ready" : threads[i]->status == Running ? "Running" : threads[i]->status == Yielding ? "Yielding" : "Returning");	
+	}
+	printf("///////////////////////////\n");	
+
+}
+
 /* scheduler */
 static void schedule() {
 	// Every time when timer interrup happens, your thread library
@@ -194,17 +217,31 @@ static void schedule() {
 	// 		sched_mlfq();
 
 	// YOUR CODE HERE
+	
+	int lowest_ticks = -1;
+	int next_thread_id = -1;
+	
+	threads[curr_thread_id]->status = Ready;
 
-	int next_thread_id = curr_thread_id;
-	while (++next_thread_id <= thread_array_size) {
-		if (next_thread_id == thread_array_size) next_thread_id = 0;
-		if (threads[next_thread_id] != NULL) break;
+	int i = 0;
+	for (i = 0; i < thread_array_size; i++) {
+		if (threads[i] == NULL) continue;
+		if (threads[i]->status == Yielding) {
+			threads[i]->status = Ready;
+			continue;
+		}else if (lowest_ticks != -1 && (threads[i]->ticks >= lowest_ticks || threads[i]->status != Ready)) continue;
+		next_thread_id = i;
+		lowest_ticks = threads[i]->ticks;
 	}
 
+	threads[next_thread_id]->ticks++;
+	
 	int curr_thread_holder = curr_thread_id;
 	curr_thread_id = next_thread_id;
 
 	threads[next_thread_id]->status = Running;
+
+	//print_status();
 
 	swapcontext(threads[curr_thread_holder]->context, threads[next_thread_id]->context);
 

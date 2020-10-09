@@ -16,6 +16,7 @@
 #include <unistd.h>
 #include <sys/syscall.h>
 #include <sys/types.h>
+#include <sys/time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <ucontext.h>
@@ -24,12 +25,13 @@
 
 typedef uint mypthread_t;
 
-typedef enum _Status { Ready, Running, Returned } Status;
+typedef enum _Status { Ready, Running, Yielding, Returned } Status;
 
 typedef struct threadControlBlock {
 	mypthread_t id;
 	ucontext_t* context;
 	Status status;
+	int ticks;
 } tcb;
 
 /* mutex struct definition */
