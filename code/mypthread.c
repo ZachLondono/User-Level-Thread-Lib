@@ -8,7 +8,7 @@
 
 static int is_init = 0;
 static tcb** threads;
-static int thread_count = 3;
+static int thread_array_size = 100;
 static int curr_thread_id = 0;
 
 static void schedule();
@@ -29,14 +29,13 @@ static int init_timer() {
 }
 
 static int next_available() {
-	static int last_id = 0;
 
 	if (!is_init) {
-		threads = malloc(sizeof(tcb*) * thread_count);
+		threads = malloc(sizeof(tcb*) * thread_array_size);
 
 		// NULL out array so theycan be chosen when creating new threads
 		int i = 0;
-		for (i = 0; i < thread_count; i++) {
+		for (i = 0; i < thread_array_size; i++) {
 			threads[i] = NULL;
 		}
 
@@ -49,10 +48,26 @@ static int next_available() {
 
 		is_init = 1;
 	}
+	
+	// Finds first NULL spot in the thread array that we can use for the new thread
+	int i = 0;
+	for (i = 0; i < thread_array_size; i++)
+		if (threads[i] == NULL) return i;
+
+	// If a NULL spot has not been found, we need to increase the size of the array
+	const uint THREAD_SIZE_INCRIMENT = 100;
+	tcb** new_array = realloc(threads, sizeof(tcb*) * (thread_array_size + THREAD_SIZE_INCRIMENT));
+	
+	// NULL new slots in thread pool
+	if (!new_array) return -1;
+	threads = new_array;
+	for (int j = thread_array_size; j < thread_array_size + THREAD_SIZE_INCRIMENT; j++)
+		threads[j] = NULL;
+	thread_array_size += THREAD_SIZE_INCRIMENT;
 
 
 	// TODO grow threads[] array as needed
-	return ++last_id;
+	return thread_array_size;
 
 }
 
@@ -180,7 +195,11 @@ static void schedule() {
 
 	// YOUR CODE HERE
 
-	int next_thread_id = curr_thread_id == 1 ? 0 : curr_thread_id + 1;
+	int next_thread_id = curr_thread_id;
+	while (++next_thread_id <= thread_array_size) {
+		if (next_thread_id == thread_array_size) next_thread_id = 0;
+		if (threads[next_thread_id] != NULL) break;
+	}
 
 	int curr_thread_holder = curr_thread_id;
 	curr_thread_id = next_thread_id;
