@@ -24,14 +24,14 @@ static int init_timer() {
 	sa.sa_sigaction = signal_action;
 	sa.sa_flags = SA_SIGINFO;
 	if (sigaction(SIGALRM, &sa, NULL) != 0) return -1;
-	
+
 	struct itimerval tv;
 	tv.it_value.tv_sec = 0;
-	tv.it_value.tv_usec = 500000;
+	tv.it_value.tv_usec = 500;
 	tv.it_interval.tv_sec = 0;
-	tv.it_interval.tv_usec = 500000;
+	tv.it_interval.tv_usec = 500;
 	if (setitimer(ITIMER_REAL, &tv, NULL) == -1) return -1;
-	
+
 	return 0;
 }
 
@@ -53,6 +53,9 @@ static int next_available() {
 		threads[0] = malloc(sizeof(tcb));
 		threads[0]->context = malloc(sizeof(ucontext_t));
 		threads[0]->ticks = 0;
+		threads[0]->ret_val = NULL;
+		threads[0]->to_join = 0;
+		// TODO: this thread control block should be freed when main returns
 
 		is_init = 1;
 	}
@@ -87,7 +90,7 @@ void function_handler(intptr_t callback, intptr_t arg) {
 
 	// save the return value so that it can be returned when another thread calls join
 	void* ret_val = real_callback(real_arg);
-	//mypthread_exit(ret_val)
+	mypthread_exit(ret_val);
 }
 
 /* create a new thread */
@@ -107,6 +110,8 @@ int mypthread_create(mypthread_t * thread, pthread_attr_t * attr, void *(*functi
 
 	tcb* new_thread = threads[new_thread_id];
 	new_thread->ticks = 0;
+	new_thread->ret_val = NULL;
+	new_thread->to_join = 0;
 
 	// create new context for new thread
 	new_thread->context = malloc(sizeof(ucontext_t));
@@ -139,38 +144,72 @@ int mypthread_yield() {
 /* terminate a thread */
 void mypthread_exit(void *value_ptr) {
 	// Deallocated any dynamic memory created when starting this thread
+	
+	tcb* curr = threads[curr_thread_id];
 
-	// YOUR CODE HERE
+	curr->ret_val = value_ptr; 
+	curr->status = Returned;
+
+	// wait for another thread to join this context, after setting status to returned, this thread should never run again
+	schedule();
+	printf("SHOULD NEVER GEt HERE\n");
+
+/*
+	// Free this threads context, it is no longer needed
+	free(curr->context->uc_stack.ss_sp);
+	free(curr->context);
+
+	// Tag as exited so that it is no longer run. This tcb will be freed by the thread which joins it
+	curr->status = Exited;
+
+	// loop endlessly until this thread is freed 
+	while(1){mypthread_yield();}
+*/
 };
 
 
 /* Wait for thread termination */
 int mypthread_join(mypthread_t thread, void **value_ptr) {
 
-	// wait for a specific thread to terminate
-	// de-allocate any dynamic memory created by the joining thread
+	//TODO: add error cases (ie. thread does not exist)
+	
+	if (threads[thread] == NULL) printf("Attempting to join thread that doesn't exist\n");
+	tcb* to_be_joined = threads[thread];
 
-	// YOUR CODE HERE
+	while (to_be_joined->status != Returned) {
+		// wait for the thread to return something;
+		mypthread_yield();
+	}
+
+	// save return value from other thread
+	if (value_ptr != NULL) *value_ptr = to_be_joined->ret_val;
+	
+	// free the other thread
+	free(to_be_joined->context->uc_stack.ss_sp);	
+	free(to_be_joined->context);	
+	free(to_be_joined);
+	
 	return 0;
 };
 
 /* initialize the mutex lock */
 int mypthread_mutex_init(mypthread_mutex_t *mutex, const pthread_mutexattr_t *mutexattr) {
-	//initialize data structures for this mutex
-
-	// YOUR CODE HERE
+	if (mutex == NULL) return -1;
+	mutex->lock = malloc(sizeof(char));
+	if(!mutex->lock) return -1;
 	return 0;
 };
 
 /* aquire the mutex lock */
 int mypthread_mutex_lock(mypthread_mutex_t *mutex) {
-        // use the built-in test-and-set atomic function to test the mutex
-        // if the mutex is acquired successfully, enter the critical section
-        // if acquiring mutex fails, push current thread into block list and //
-        // context switch to the scheduler thread
-
-        // YOUR CODE HERE
-        return 0;
+	// use the built-in test-and-set atomic function to test the mutex
+	// if the mutex is acquired successfully, enter the critical section
+	// if acquiring mutex fails, push current thread into block list and //
+	// context switch to the scheduler thread
+	while (__atomic_test_and_set(mutex->lock, __ATOMIC_RELAXED) != 0) {
+		mypthread_yield();
+	}
+	return 0;
 };
 
 /* release the mutex lock */
@@ -178,8 +217,7 @@ int mypthread_mutex_unlock(mypthread_mutex_t *mutex) {
 	// Release mutex and make it available again.
 	// Put threads in block list to run queue
 	// so that they could compete for mutex later.
-
-	// YOUR CODE HERE
+	__atomic_clear(mutex->lock, __ATOMIC_RELAXED);	
 	return 0;
 };
 
@@ -187,7 +225,7 @@ int mypthread_mutex_unlock(mypthread_mutex_t *mutex) {
 /* destroy the mutex */
 int mypthread_mutex_destroy(mypthread_mutex_t *mutex) {
 	// Deallocate dynamic memory created in mypthread_mutex_init
-
+	free(mutex->lock);
 	return 0;
 };
 
@@ -227,11 +265,12 @@ static void sched_stcf() {
 	int lowest_ticks = -1;
 	int next_thread_id = -1;
 	
-	threads[curr_thread_id]->status = Ready;
+	if (threads[curr_thread_id]->status == Running) threads[curr_thread_id]->status = Ready;
 
 	int i = 0;
 	for (i = 0; i < thread_array_size; i++) {
 		if (threads[i] == NULL) continue;
+		if (threads[i]->status == Returned) continue;
 		if (threads[i]->status == Yielding) {
 			threads[i]->status = Ready;
 			continue;

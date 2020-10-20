@@ -32,13 +32,13 @@ typedef struct threadControlBlock {
 	ucontext_t* context;
 	Status status;
 	int ticks;
+	void* ret_val;
+	mypthread_t to_join;
 } tcb;
 
 /* mutex struct definition */
 typedef struct mypthread_mutex_t {
-	/* add something here */
-
-	// YOUR CODE HERE
+	char* lock;
 } mypthread_mutex_t;
 
 /* define your data structures here: */
