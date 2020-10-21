@@ -165,9 +165,11 @@ void mypthread_exit(void *value_ptr) {
 				prev_node->previous = node->previous;
 				free(node->data);
 				free(node);
+				node = prev_node->previous;
+			} else {
+				prev_node = node;
+				node = node->previous;
 			}
-			prev_node = node;
-			node = node->previous;
 		}
 	}
 
