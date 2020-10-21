@@ -10,8 +10,13 @@ static int is_init = 0;
 static tcb** threads;
 static int thread_array_size = 100;
 static int curr_thread_id = 0;
+static StackNode** waiting_queue = NULL;
 
 static void schedule();
+static void push(void* data, StackNode** root);
+static void* pop(StackNode** root);
+static void* peek(StackNode** root);
+
 static void signal_action(int a, siginfo_t *b, void *c) {
 	schedule();
 }
@@ -52,7 +57,7 @@ static int next_available() {
 		// allocate tcb for main thread
 		threads[0] = malloc(sizeof(tcb));
 		threads[0]->context = malloc(sizeof(ucontext_t));
-		threads[0]->ticks = 0;
+		threads[0]->ticks = 1;
 		threads[0]->ret_val = NULL;
 		threads[0]->to_join = 0;
 		// TODO: this thread control block should be freed when main returns
@@ -149,6 +154,23 @@ void mypthread_exit(void *value_ptr) {
 	curr->ret_val = value_ptr; 
 	curr->status = Returned;
 
+	if (waiting_queue != NULL) {
+		// Check waiting threads if their targets have returned
+		StackNode* node = *waiting_queue;
+		StackNode* prev_node = node; // prev_node is the previous node in the iteration, not the previously added node in the "stack"
+		while (node != NULL) {
+			WaitingPair* pair = (WaitingPair*) node->data;
+			if (threads[pair->target_thread]->status == Returned) {
+				threads[pair->waiting_thread]->status = Ready;
+				prev_node->previous = node->previous;
+				free(node->data);
+				free(node);
+			}
+			prev_node = node;
+			node = node->previous;
+		}
+	}
+
 	// wait for another thread to join this context, after setting status to returned, this thread should never run again
 	schedule();
 	printf("SHOULD NEVER GEt HERE\n");
@@ -177,7 +199,20 @@ int mypthread_join(mypthread_t thread, void **value_ptr) {
 
 	while (to_be_joined->status != Returned) {
 		// wait for the thread to return something;
-		mypthread_yield();
+		//mypthread_yield();
+		
+		// push this thread into stack of threads waiting to be joined
+		// in schedule function, check each thread that is waiting to see if it's thread has been returned.
+		threads[curr_thread_id]->status = Waiting;
+		
+		WaitingPair* new_pair = malloc(sizeof(WaitingPair));
+		new_pair->waiting_thread = curr_thread_id;
+		new_pair->target_thread = thread;
+
+		if (waiting_queue == NULL) waiting_queue = malloc(sizeof(StackNode*));
+
+		push(new_pair, waiting_queue);
+		schedule();
 	}
 
 	// save return value from other thread
@@ -284,7 +319,9 @@ static void sched_stcf() {
 	int i = 0;
 	for (i = 0; i < thread_array_size; i++) {
 		if (threads[i] == NULL) continue;
-		if (threads[i]->status == Returned || threads[i]->status == Blocked) continue;
+		if (threads[i]->status == Returned || 
+			threads[i]->status == Blocked ||
+			threads[i]->status == Waiting) continue;
 		if (threads[i]->status == Yielding) {
 			threads[i]->status = Ready;
 			continue;
@@ -311,7 +348,7 @@ static void sched_mlfq() {
 	// YOUR CODE HERE
 }
 
-void push(void* data, StackNode** top) {
+static void push(void* data, StackNode** top) {
 
     StackNode* new_node = malloc(sizeof(StackNode));
     new_node->data = data;
@@ -327,7 +364,7 @@ void push(void* data, StackNode** top) {
 
 }
 
-void* pop(StackNode** top) {
+static void* pop(StackNode** top) {
 
     if (top == NULL || *top == NULL) return NULL;
 
