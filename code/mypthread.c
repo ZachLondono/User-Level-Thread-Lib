@@ -24,14 +24,14 @@ static int init_timer() {
 	sa.sa_sigaction = signal_action;
 	sa.sa_flags = SA_SIGINFO;
 	if (sigaction(SIGALRM, &sa, NULL) != 0) return -1;
-
+	
 	struct itimerval tv;
 	tv.it_value.tv_sec = 0;
 	tv.it_value.tv_usec = 500;
 	tv.it_interval.tv_sec = 0;
 	tv.it_interval.tv_usec = 500;
 	if (setitimer(ITIMER_REAL, &tv, NULL) == -1) return -1;
-
+	
 	return 0;
 }
 
@@ -104,7 +104,6 @@ int mypthread_create(mypthread_t * thread, pthread_attr_t * attr, void *(*functi
 	if(thread != NULL)
 		*thread = new_thread_id;
 
-	
 	threads[new_thread_id] = malloc(sizeof(tcb));
 	if (!threads[new_thread_id]) return -1;
 
@@ -183,7 +182,7 @@ int mypthread_join(mypthread_t thread, void **value_ptr) {
 
 	// save return value from other thread
 	if (value_ptr != NULL) *value_ptr = to_be_joined->ret_val;
-	
+
 	// free the other thread
 	free(to_be_joined->context->uc_stack.ss_sp);	
 	free(to_be_joined->context);	
@@ -197,6 +196,8 @@ int mypthread_mutex_init(mypthread_mutex_t *mutex, const pthread_mutexattr_t *mu
 	if (mutex == NULL) return -1;
 	mutex->lock = malloc(sizeof(char));
 	if(!mutex->lock) return -1;
+	mutex->blocked = malloc(sizeof(StackNode*));
+	*(mutex->blocked) = NULL;
 	return 0;
 };
 
@@ -206,8 +207,12 @@ int mypthread_mutex_lock(mypthread_mutex_t *mutex) {
 	// if the mutex is acquired successfully, enter the critical section
 	// if acquiring mutex fails, push current thread into block list and //
 	// context switch to the scheduler thread
-	while (__atomic_test_and_set(mutex->lock, __ATOMIC_RELAXED) != 0) {
-		mypthread_yield();
+	int ret = -1;
+	while ((ret = __atomic_test_and_set(mutex->lock, __ATOMIC_RELAXED)) != 0) {
+		// mypthread_yield();
+		threads[curr_thread_id]->status = Blocked;
+		push(threads[curr_thread_id], (mutex->blocked));
+		schedule();
 	}
 	return 0;
 };
@@ -217,6 +222,11 @@ int mypthread_mutex_unlock(mypthread_mutex_t *mutex) {
 	// Release mutex and make it available again.
 	// Put threads in block list to run queue
 	// so that they could compete for mutex later.
+	tcb* blocked_thread;
+	while ((blocked_thread = pop((mutex->blocked))) != NULL) {
+		blocked_thread->status = Ready;
+	}
+
 	__atomic_clear(mutex->lock, __ATOMIC_RELAXED);	
 	return 0;
 };
@@ -226,6 +236,10 @@ int mypthread_mutex_unlock(mypthread_mutex_t *mutex) {
 int mypthread_mutex_destroy(mypthread_mutex_t *mutex) {
 	// Deallocate dynamic memory created in mypthread_mutex_init
 	free(mutex->lock);
+	tcb* blocked_thread;
+	while ((blocked_thread = pop((mutex->blocked))) != NULL) {
+		blocked_thread->status = Ready;
+	}
 	return 0;
 };
 
@@ -270,7 +284,7 @@ static void sched_stcf() {
 	int i = 0;
 	for (i = 0; i < thread_array_size; i++) {
 		if (threads[i] == NULL) continue;
-		if (threads[i]->status == Returned) continue;
+		if (threads[i]->status == Returned || threads[i]->status == Blocked) continue;
 		if (threads[i]->status == Yielding) {
 			threads[i]->status = Ready;
 			continue;
@@ -297,6 +311,32 @@ static void sched_mlfq() {
 	// YOUR CODE HERE
 }
 
-// Feel free to add any other functions you need
+void push(void* data, StackNode** top) {
 
-// YOUR CODE HERE
+    StackNode* new_node = malloc(sizeof(StackNode));
+    new_node->data = data;
+    new_node->previous = NULL;
+
+    if (top == NULL || *top == NULL) *top = new_node;
+    else {
+        new_node->previous = *top;
+        *top = new_node;
+    }
+
+    return;
+
+}
+
+void* pop(StackNode** top) {
+
+    if (top == NULL || *top == NULL) return NULL;
+
+    StackNode* new_top = (*top)->previous;
+    void* temp_data = (*top)->data;
+    //free(*top);
+
+    *top = new_top;
+
+    return temp_data;
+
+}

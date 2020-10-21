@@ -10,7 +10,7 @@
 #define _GNU_SOURCE
 
 /* To use Linux pthread Library in Benchmark, you have to comment the USE_MYTHREAD macro */
-#define USE_MYTHREAD 1
+//#define USE_MYTHREAD 1
 
 /* include lib header files that you need here: */
 #include <unistd.h>
@@ -25,7 +25,16 @@
 
 typedef uint mypthread_t;
 
-typedef enum _Status { Ready, Running, Yielding, Returned } Status;
+typedef enum _Status { Ready, Running, Yielding, Returned, Blocked } Status;
+
+typedef struct _StackNode {
+    void* data;
+    struct _StackNode* previous;
+} StackNode;
+
+void push(void* data, StackNode** root);
+void* pop(StackNode** root);
+void* peek(StackNode** root);
 
 typedef struct threadControlBlock {
 	mypthread_t id;
@@ -39,6 +48,7 @@ typedef struct threadControlBlock {
 /* mutex struct definition */
 typedef struct mypthread_mutex_t {
 	char* lock;
+	StackNode** blocked;
 } mypthread_mutex_t;
 
 /* define your data structures here: */
@@ -74,6 +84,7 @@ int mypthread_mutex_unlock(mypthread_mutex_t *mutex);
 
 /* destroy the mutex */
 int mypthread_mutex_destroy(mypthread_mutex_t *mutex);
+
 
 #ifdef USE_MYTHREAD
 #define pthread_t mypthread_t
