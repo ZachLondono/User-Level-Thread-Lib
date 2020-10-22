@@ -161,7 +161,7 @@ int mypthread_create(mypthread_t * thread, pthread_attr_t * attr, void *(*functi
 	VALGRIND_STACK_REGISTER(new_context->uc_stack.ss_sp, new_context->uc_stack.ss_sp + SIGSTKSZ);
 
 	// pass the function and argument as arguments into the function handler
-	makecontext(new_context, function_handler, 2, (intptr_t) function, (intptr_t) arg);
+	makecontext(new_context, (void (*)(void)) function_handler, 2, (intptr_t) function, (intptr_t) arg);
 
 	push_queue(threads[new_thread_id], run_queue);
 
@@ -309,6 +309,7 @@ int mypthread_mutex_unlock(mypthread_mutex_t *mutex) {
 	tcb* blocked_thread;
 	while ((blocked_thread = pop((mutex->blocked))) != NULL) {
 		blocked_thread->status = Ready;
+		push_queue(blocked_thread, run_queue);
 	}
 
 	__atomic_clear(mutex->lock, __ATOMIC_RELAXED);	
@@ -323,6 +324,7 @@ int mypthread_mutex_destroy(mypthread_mutex_t *mutex) {
 	tcb* blocked_thread;
 	while ((blocked_thread = pop((mutex->blocked))) != NULL) {
 		blocked_thread->status = Ready;
+		push_queue(blocked_thread, run_queue);
 	}
 	return 0;
 };
@@ -362,36 +364,11 @@ static void sched_stcf() {
 
 	signal(SIGPROF, SIG_IGN);
 
-	
 	if (threads[curr_thread_id]->status == Running)
 		threads[curr_thread_id]->status = Ready;
 
-	if (threads[curr_thread_id]->status != Returned) 
+	if (threads[curr_thread_id]->status != Returned && threads[curr_thread_id]->status != Blocked) 
 		push_queue(threads[curr_thread_id], run_queue);
-	
-	/*
-	int lowest_ticks = -1;
-	int next_thread_id = -1;
-	int i = 0;
-	for (i = 0; i < thread_array_size; i++) {
-		tcb* thread = threads[i];
-		if (threads[i] == NULL) continue;
-		if (thread->status == Returned || 
-			thread->status == Blocked ||
-			thread->status == Waiting) continue;
-		if (thread->status == Yielding) {
-			thread->status = Ready;
-			continue;
-		}else if (lowest_ticks != -1 && (thread->ticks >= lowest_ticks || thread->status != Ready)) continue;
-		next_thread_id = i;
-		lowest_ticks = threads[i]->ticks;
-	}
-	if (next_thread_id == -1) printf("FLoOo0p\n");
-	threads[next_thread_id]->ticks++;
-	//int curr_thread_holder = curr_thread_id;
-	//curr_thread_id = next_thread_id;
-	*/
-
 	
 	tcb* next_thread;
 	do {
