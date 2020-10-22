@@ -22,15 +22,16 @@
 #include <ucontext.h>
 #include <signal.h>
 #include <string.h>
+#include <errno.h>
 
 typedef uint mypthread_t;
 
 typedef enum _Status { Ready, Running, Yielding, Returned, Blocked, Waiting } Status;
 
-typedef struct _StackNode {
+typedef struct _LLNode {
     void* data;
-    struct _StackNode* previous;
-} StackNode;
+    struct _LLNode* next;
+} LLNode;
 
 typedef struct _WaitingPair {
 	int waiting_thread;
@@ -49,7 +50,7 @@ typedef struct threadControlBlock {
 /* mutex struct definition */
 typedef struct mypthread_mutex_t {
 	char* lock;
-	StackNode** blocked;
+	LLNode** blocked;
 } mypthread_mutex_t;
 
 
