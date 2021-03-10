@@ -1,2 +1,2 @@
-# OS-Project2
+# User level thread library in C
 implimentation of user level threads
